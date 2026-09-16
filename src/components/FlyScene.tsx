@@ -48,7 +48,7 @@ export function FlyScene() {
     };
     controls.addEventListener('change',draw);
     void (async () => {
-      const get = async (path:string) => { const r = await fetch(asset(`data/flybody/${path}`),{signal:controller.signal}); if(!r.ok) throw Error('Flybody asset unavailable'); return r; };
+      const get = async (path:string) => { const r = await fetch(asset(`data/flybody/${path}`),{signal:controller.signal}); if(!r.ok) throw Error('果蝇身体资源加载失败'); return r; };
       const meta = await (await get('model.json')).json() as Model;
       const buffer = await (await get(meta.binary)).arrayBuffer();
       if(disposed) return;
@@ -70,5 +70,5 @@ export function FlyScene() {
     const observer = new ResizeObserver(resize); observer.observe(element); resize();
     return () => {disposed=true;controller.abort();observer.disconnect();controls.dispose();modelRoot.traverse(object=>{if(object instanceof THREE.Mesh)object.geometry.dispose();});Object.values(materials).forEach(m=>m.dispose());renderer.dispose();renderer.domElement.remove();};
   },[]);
-  return <div ref={host} className="three-viewport" aria-label="Flybody anatomical surface, drag to rotate">{error&&<p role="alert">{error}</p>}</div>;
+  return <div ref={host} className="three-viewport" aria-label="Flybody 果蝇解剖表面，拖动可旋转">{error&&<p role="alert">{error}</p>}</div>;
 }

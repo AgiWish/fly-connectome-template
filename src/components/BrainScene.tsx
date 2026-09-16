@@ -134,12 +134,12 @@ export function BrainScene({ atlas, frame }: { atlas: Atlas; frame: ActivityFram
 
   return <>
     <div className="brain-view-controls">
-      <button title="Reset to native XY projection with equal axis scale" onClick={() => { orbit.current = false; setOrbiting(false); resetView.current?.(); }}>XY view</button>
-      <button aria-pressed={orbiting} onClick={() => { orbit.current = !orbit.current; setOrbiting(orbit.current); }}>Orbit {orbiting ? "on" : "off"}</button>
+      <button title="恢复默认 XY 视角（等比例坐标轴）" onClick={() => { orbit.current = false; setOrbiting(false); resetView.current?.(); }}>XY 视角</button>
+      <button aria-pressed={orbiting} onClick={() => { orbit.current = !orbit.current; setOrbiting(orbit.current); }}>自动旋转{orbiting ? "：开" : "：关"}</button>
     </div>
-    <div className="brain-legend">Blue: anatomy · cyan/white: supplied values [0, 1]</div>
-    <div ref={host} className="three-viewport brain-viewport" aria-label="MaleCNS brain soma atlas">
-      {state !== "ready" && <span className="neural-load" role="status">{state === "error" ? "Atlas unavailable" : "Loading anatomy"}</span>}
+    <div className="brain-legend">蓝色：解剖结构 · 青色/白色：输入的活动值（0–1）</div>
+    <div ref={host} className="three-viewport brain-viewport" aria-label="MaleCNS 大脑胞体图谱">
+      {state !== "ready" && <span className="neural-load" role="status">{state === "error" ? "图谱加载失败" : "解剖数据加载中"}</span>}
 
     </div>
   </>;
