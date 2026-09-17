@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { asset, type Atlas } from "../lib/atlas";
@@ -7,7 +7,8 @@ import type { StimulusInput, ThoughtDiagnostics } from "../lib/live-brain";
 
 type Props = {
   atlas: Atlas;
-  frame: ActivityFrame | null;
+  /** 直值模式每帧经 React 传递；高频循环请改传 ref，渲染内部按帧读取，避免 60fps reconciliation */
+  frame: ActivityFrame | null | MutableRefObject<ActivityFrame | null>;
   stimulus: StimulusInput;
   diagnostics: ThoughtDiagnostics | null;
   xrayOpacity: number; // 0=实体, 0.4=X-Ray透视, 1=纯神经元
@@ -55,7 +56,15 @@ export function UnifiedXRayWorkbench({
   const diagRef = useRef(diagnostics);
   const xrayRef = useRef(xrayOpacity);
 
-  useEffect(() => { signalRef.current = frame; }, [frame]);
+  // 兼容直值与 ref 两种帧来源：直值模式下镜像到内部 ref；ref 模式下直接共用
+  const frameInnerRef = useRef<ActivityFrame | null>(null);
+  const isFrameRef = typeof frame === "object" && frame !== null && "current" in frame;
+  useEffect(() => {
+    if (!isFrameRef) signalRef.current = frame;
+  }, [frame, isFrameRef]);
+  useEffect(() => {
+    if (isFrameRef) signalRef.current = frame.current;
+  });
   useEffect(() => { stimRef.current = stimulus; }, [stimulus]);
   useEffect(() => { diagRef.current = diagnostics; }, [diagnostics]);
   useEffect(() => { xrayRef.current = xrayOpacity; }, [xrayOpacity]);

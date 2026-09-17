@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { asset, type Atlas } from "../lib/atlas";
+import type { ActivityFrame } from "../lib/replay";
 import { AutonomousFlyLifeEngine, type LifeDiagnostics } from "../lib/autonomous-fly-life";
+import { NeuralThoughtCockpit } from "./NeuralThoughtCockpit";
 
 type Props = {
   atlas: Atlas;
 };
+
+type RoamMode = "at_island" | "diving_down" | "screen_crawling" | "screen_cruising" | "flying_home";
 
 type Model = {
   binary: string;
@@ -20,16 +24,20 @@ type Model = {
   }[];
 };
 
-type RoamMode = "at_island" | "diving_down" | "screen_crawling" | "screen_cruising" | "flying_home";
-
 /**
- * macOS 原生灵动岛与全屏自由漫游桌面宠物 (自然尺度、灵动六足步态、无常驻方框阻碍)
+ * macOS 原生灵动岛与全屏自由漫游桌面宠物 (自然尺度、灵动六足步态、无常驻方框阻碍、随叫随到神经思考舱)
  */
 export function MacDesktopFlyPet({ atlas }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [showBrainXray, setShowBrainXray] = useState(false);
   const [isMagnified, setIsMagnified] = useState(false);
   const [diagnostics, setDiagnostics] = useState<LifeDiagnostics | null>(null);
+
+  // 后台神经思考监控舱展开状态 (支持全局快捷键 Cmd+Shift+B 随叫随到)
+  const [showCockpit, setShowCockpit] = useState(false);
+  const [currentFrame, setCurrentFrame] = useState<ActivityFrame | null>(null);
+  const showCockpitRef = useRef(false);
+  useEffect(() => { showCockpitRef.current = showCockpit; }, [showCockpit]);
 
   // 轻量微胶囊状态 (默认完全隐藏！绝不在桌面上跟着移动大白方框)
   const [bubbleOpen, setBubbleOpen] = useState(false);
@@ -103,19 +111,35 @@ export function MacDesktopFlyPet({ atlas }: Props) {
         const onSummon = () => {
           actionTriggerRef.current.summon?.();
         };
+        const onToggleCockpit = () => {
+          setShowCockpit((prev) => {
+            const next = !prev;
+            setElectronMouseIgnore(!next);
+            return next;
+          });
+        };
+
         ipcRenderer.on('summon-fly', onSummon);
+        ipcRenderer.on('toggle-brain-cockpit', onToggleCockpit);
         return () => {
           ipcRenderer.removeListener('summon-fly', onSummon);
+          ipcRenderer.removeListener('toggle-brain-cockpit', onToggleCockpit);
         };
       }
     } catch {}
   }, []);
 
-  // 监听空格键一键召唤
+  // 监听空格键一键召唤与 Cmd/Ctrl+Shift+B 切换神经思考舱
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         actionTriggerRef.current.summon?.();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+        setShowCockpit((prev) => {
+          const next = !prev;
+          setElectronMouseIgnore(!next);
+          return next;
+        });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -170,173 +194,168 @@ export function MacDesktopFlyPet({ atlas }: Props) {
     const modelContainer = new THREE.Group();
     flyRoot.add(modelContainer);
 
-    // 材质定义
-    const matAmber = new THREE.MeshStandardMaterial({
-      color: 0xc87d32,
-      roughness: 0.28,
-      metalness: 0.16,
-    });
-    const matDarkThorax = new THREE.MeshStandardMaterial({
-      color: 0x4a2a12,
-      roughness: 0.35,
-      metalness: 0.12,
-    });
-    const matRubyEye = new THREE.MeshStandardMaterial({
-      color: 0xee1105,
-      roughness: 0.15,
-      metalness: 0.25,
-      emissive: 0x660500,
-      emissiveIntensity: 0.45,
-    });
-    const matAbdomen = new THREE.MeshStandardMaterial({
-      color: 0xb56c28,
-      roughness: 0.32,
-      metalness: 0.14,
-    });
-    const matWing = new THREE.MeshStandardMaterial({
-      color: 0xf0f8ff,
-      transparent: true,
-      opacity: 0.72,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      roughness: 0.08,
-      metalness: 0.2,
-    });
-    const matLeg = new THREE.MeshStandardMaterial({
-      color: 0x3d2310,
-      roughness: 0.4,
-      metalness: 0.1,
-    });
-    const matAntenna = new THREE.MeshStandardMaterial({
-      color: 0x1f140c,
-      roughness: 0.6,
-      metalness: 0.05,
-    });
+    const flybodyRoot = new THREE.Group();
+    modelContainer.add(flybodyRoot);
 
-    // ── 3. 构造极度灵动鲜活的高拟真程序化生物果蝇 ──
-    // A. 躯干 (Thorax)
-    const thoraxGeom = new THREE.SphereGeometry(0.046, 16, 14);
-    thoraxGeom.scale(1.0, 0.82, 1.28);
-    const thoraxMesh = new THREE.Mesh(thoraxGeom, matDarkThorax);
-    modelContainer.add(thoraxMesh);
-
-    // B. 头部 (Head)
-    const headGroup = new THREE.Group();
-    headGroup.position.set(0, 0, 0.058);
-    modelContainer.add(headGroup);
-
-    const headGeom = new THREE.SphereGeometry(0.036, 16, 14);
-    headGeom.scale(1.15, 0.88, 0.95);
-    const headMesh = new THREE.Mesh(headGeom, matAmber);
-    headGroup.add(headMesh);
-
-    // 鲜红大复眼 (Ruby Eyes)
-    const eyeGeom = new THREE.SphereGeometry(0.021, 14, 12);
-    eyeGeom.scale(0.88, 1.12, 1.25);
-    const eyeL = new THREE.Mesh(eyeGeom, matRubyEye);
-    eyeL.position.set(-0.027, 0.008, 0.008);
-    const eyeR = new THREE.Mesh(eyeGeom, matRubyEye);
-    eyeR.position.set(0.027, 0.008, 0.008);
-    headGroup.add(eyeL);
-    headGroup.add(eyeR);
-
-    // 触角 (Antennae)
-    const antGeom = new THREE.CylinderGeometry(0.002, 0.001, 0.038, 6);
-    antGeom.translate(0, 0.019, 0);
-    const antL = new THREE.Mesh(antGeom, matAntenna);
-    antL.position.set(-0.012, 0.012, 0.032);
-    antL.rotation.set(0.5, 0.25, 0.3);
-    const antR = new THREE.Mesh(antGeom, matAntenna);
-    antR.position.set(0.012, 0.012, 0.032);
-    antR.rotation.set(0.5, -0.25, -0.3);
-    headGroup.add(antL);
-    headGroup.add(antR);
-
-    // C. 腹部 (Abdomen，带节段微缩放呼吸)
-    const abdomenGroup = new THREE.Group();
-    abdomenGroup.position.set(0, -0.006, -0.052);
-    modelContainer.add(abdomenGroup);
-
-    const abdGeom = new THREE.SphereGeometry(0.054, 16, 14);
-    abdGeom.scale(0.92, 0.78, 1.68);
-    const abdomenMesh = new THREE.Mesh(abdGeom, matAbdomen);
-    abdomenMesh.position.set(0, 0, -0.046);
-    abdomenGroup.add(abdomenMesh);
-
-    // D. 双翅与铰接枢轴 (Wings)
+    // 肢体与双翅铰接枢轴
+    const frontLeftPivot = new THREE.Group();
+    const frontRightPivot = new THREE.Group();
     const leftWingPivot = new THREE.Group();
     const rightWingPivot = new THREE.Group();
-    leftWingPivot.position.set(-0.026, 0.022, -0.012);
-    rightWingPivot.position.set(0.026, 0.022, -0.012);
-    modelContainer.add(leftWingPivot);
-    modelContainer.add(rightWingPivot);
+    const brainInHead = new THREE.Group();
 
-    const wingShape = new THREE.PlaneGeometry(0.075, 0.165, 4, 8);
-    wingShape.translate(0, 0, -0.08);
+    flybodyRoot.add(frontLeftPivot);
+    flybodyRoot.add(frontRightPivot);
+    flybodyRoot.add(leftWingPivot);
+    flybodyRoot.add(rightWingPivot);
+    flybodyRoot.add(brainInHead);
 
-    const wingL = new THREE.Mesh(wingShape, matWing);
-    wingL.rotation.x = -Math.PI / 2;
-    leftWingPivot.add(wingL);
-
-    const wingR = new THREE.Mesh(wingShape, matWing);
-    wingR.rotation.x = -Math.PI / 2;
-    rightWingPivot.add(wingR);
-
-    // E. 核心：六足铰接运动系统 (6 Articulated Legs for Tripod Gait)
-    const createLeg = (lengthFemur: number, lengthTibia: number) => {
-      const hip = new THREE.Group();
-
-      const femurGeom = new THREE.CylinderGeometry(0.004, 0.003, lengthFemur, 6);
-      femurGeom.translate(0, -lengthFemur / 2, 0);
-      const femur = new THREE.Mesh(femurGeom, matLeg);
-
-      const knee = new THREE.Group();
-      knee.position.set(0, -lengthFemur, 0);
-
-      const tibiaGeom = new THREE.CylinderGeometry(0.003, 0.0018, lengthTibia, 6);
-      tibiaGeom.translate(0, -lengthTibia / 2, 0);
-      const tibia = new THREE.Mesh(tibiaGeom, matLeg);
-      knee.add(tibia);
-
-      femur.add(knee);
-      hip.add(femur);
-
-      return { hip, femur, knee, tibia };
+    // ── 3. 构造 100% 真实权威生物解剖孪生 Flybody 材质体系 ──
+    const materials: Record<string, THREE.MeshStandardMaterial> = {
+      // 几丁质胸背外骨骼
+      body: new THREE.MeshStandardMaterial({
+        color: 0xa86832,
+        roughness: 0.38,
+        metalness: 0.12,
+      }),
+      // 刚毛尖端、足爪微钩与口器
+      black: new THREE.MeshStandardMaterial({
+        color: 0x16120f,
+        roughness: 0.5,
+        metalness: 0.08,
+      }),
+      // 灿烂红宝石大复眼 (Ruby Compound Eyes)
+      red: new THREE.MeshStandardMaterial({
+        color: 0xcc1a10,
+        emissive: 0x5a0600,
+        emissiveIntensity: 0.35,
+        roughness: 0.18,
+        metalness: 0.22,
+      }),
+      // 额顶 3 只晶状小单眼 (Ocelli)
+      ocelli: new THREE.MeshStandardMaterial({
+        color: 0xf59e0b,
+        emissive: 0x78350f,
+        emissiveIntensity: 0.45,
+        roughness: 0.12,
+        metalness: 0.15,
+      }),
+      // 背板与头部专属解剖刚毛毛序 (Bristles)
+      "bristle-brown": new THREE.MeshStandardMaterial({
+        color: 0x382012,
+        roughness: 0.6,
+        metalness: 0.05,
+      }),
+      // 腹侧淡色几丁质
+      lower: new THREE.MeshStandardMaterial({
+        color: 0xb5824c,
+        roughness: 0.45,
+        metalness: 0.1,
+      }),
+      // 腹部黑黄相间的真实体节条纹 (Abdominal Terga)
+      brown: new THREE.MeshStandardMaterial({
+        color: 0x55341c,
+        roughness: 0.35,
+        metalness: 0.14,
+      }),
+      // 高精半透明脉络翅膜 (Membrane Wings)
+      membrane: new THREE.MeshStandardMaterial({
+        color: 0xdbeafe,
+        transparent: true,
+        opacity: 0.76,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        roughness: 0.08,
+        metalness: 0.22,
+      }),
     };
-
-    // 左右前足 (FL, FR)
-    const legFL = createLeg(0.046, 0.052);
-    legFL.hip.position.set(-0.026, -0.01, 0.026);
-    modelContainer.add(legFL.hip);
-
-    const legFR = createLeg(0.046, 0.052);
-    legFR.hip.position.set(0.026, -0.01, 0.026);
-    modelContainer.add(legFR.hip);
-
-    // 左右中足 (ML, MR)
-    const legML = createLeg(0.052, 0.058);
-    legML.hip.position.set(-0.034, -0.012, 0.0);
-    modelContainer.add(legML.hip);
-
-    const legMR = createLeg(0.052, 0.058);
-    legMR.hip.position.set(0.034, -0.012, 0.0);
-    modelContainer.add(legMR.hip);
-
-    // 左右后足 (HL, HR)
-    const legHL = createLeg(0.058, 0.066);
-    legHL.hip.position.set(-0.028, -0.014, -0.028);
-    modelContainer.add(legHL.hip);
-
-    const legHR = createLeg(0.058, 0.066);
-    legHR.hip.position.set(0.028, -0.014, -0.028);
-    modelContainer.add(legHR.hip);
 
     // 随身生物微柔光
     const bioLight = new THREE.PointLight(0xffedd5, 2.2, 140);
     bioLight.position.set(0, 10, 15);
     flyRoot.add(bioLight);
 
-    // 4. 嵌合 12.4 万实测神经元星云
+    // 加载 Flybody 真实解剖网格 (93,879 独立多边形)
+    void (async () => {
+      try {
+        const get = async (path: string) => {
+          const r = await fetch(asset(`data/flybody/${path}`));
+          if (!r.ok) throw Error("Flybody 身体资源加载失败");
+          return r;
+        };
+        const meta = (await (await get("model.json")).json()) as Model;
+        const buffer = await (await get(meta.binary)).arrayBuffer();
+
+        const pFL = meta.pivots.front_left ?? [0.0209, -0.0272, 0.0317];
+        const pFR = meta.pivots.front_right ?? [-0.0209, -0.0272, 0.0317];
+        const pWL = [-0.0462, 0.0096, -0.0128];
+        const pWR = [0.0462, 0.0096, -0.0128];
+
+        frontLeftPivot.position.set(pFL[0], pFL[1], pFL[2]);
+        frontRightPivot.position.set(pFR[0], pFR[1], pFR[2]);
+        leftWingPivot.position.set(pWL[0], pWL[1], pWL[2]);
+        rightWingPivot.position.set(pWR[0], pWR[1], pWR[2]);
+
+        for (const part of meta.parts) {
+          if (part.material === "membrane") {
+            const rawPos = new Float32Array(buffer.slice(part.positionByteOffset, part.positionByteOffset + part.positionCount * 12));
+            const rawIndices = new Uint32Array(buffer.slice(part.indexByteOffset, part.indexByteOffset + part.indexCount * 4));
+            const leftTris: number[] = [], rightTris: number[] = [];
+            for (let i = 0; i < rawIndices.length; i += 3) {
+              const i0 = rawIndices[i], i1 = rawIndices[i + 1], i2 = rawIndices[i + 2];
+              const avgX = (rawPos[i0 * 3] + rawPos[i1 * 3] + rawPos[i2 * 3]) / 3;
+              if (avgX < 0) leftTris.push(i0, i1, i2);
+              else rightTris.push(i0, i1, i2);
+            }
+            const gL = new THREE.BufferGeometry();
+            gL.setAttribute("position", new THREE.BufferAttribute(rawPos, 3));
+            gL.setIndex(leftTris);
+            gL.computeVertexNormals();
+            const mL = new THREE.Mesh(gL, materials.membrane);
+            mL.position.set(-pWL[0], -pWL[1], -pWL[2]);
+            leftWingPivot.add(mL);
+
+            const gR = new THREE.BufferGeometry();
+            gR.setAttribute("position", new THREE.BufferAttribute(rawPos, 3));
+            gR.setIndex(rightTris);
+            gR.computeVertexNormals();
+            const mR = new THREE.Mesh(gR, materials.membrane);
+            mR.position.set(-pWR[0], -pWR[1], -pWR[2]);
+            rightWingPivot.add(mR);
+            continue;
+          }
+
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buffer.slice(part.positionByteOffset, part.positionByteOffset + part.positionCount * 12)), 3));
+          geom.setIndex(new THREE.BufferAttribute(new Uint32Array(buffer.slice(part.indexByteOffset, part.indexByteOffset + part.indexCount * 4)), 1));
+          geom.computeVertexNormals();
+          const mesh = new THREE.Mesh(geom, materials[part.material] ?? materials.body);
+
+          if (part.group === "front_left") {
+            mesh.position.set(-pFL[0], -pFL[1], -pFL[2]);
+            frontLeftPivot.add(mesh);
+          } else if (part.group === "front_right") {
+            mesh.position.set(-pFR[0], -pFR[1], -pFR[2]);
+            frontRightPivot.add(mesh);
+          } else {
+            flybodyRoot.add(mesh);
+          }
+        }
+
+        // 精确对齐几何中心至原点
+        const box = new THREE.Box3().setFromObject(flybodyRoot);
+        const center = box.getCenter(new THREE.Vector3());
+        flybodyRoot.position.sub(center);
+
+        // 默认漫步与停歇姿态：双翅如真实果蝇般剪刀状合拢在背部
+        leftWingPivot.rotation.set(0.05, -0.22, 0.04);
+        rightWingPivot.rotation.set(0.05, 0.22, -0.04);
+      } catch (e) {
+        console.error("加载 Flybody 失败:", e);
+      }
+    })();
+
+    // 4. 嵌合 12.4 万实测神经元星云于果蝇复眼头颅内
     const { positions, ids, groups } = atlas;
     const count = atlas.visibleIds.size;
     const xyz = new Float32Array(count * 3);
@@ -389,7 +408,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
           vAct = activity;
           vGroup = groupType;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = (1.2 + vAct * 2.5) * 1.6;
+          gl_PointSize = (1.4 + vAct * 2.8) * 1.6;
         }
       `,
       fragmentShader: `
@@ -401,18 +420,17 @@ export function MacDesktopFlyPet({ atlas }: Props) {
           if (r > 0.5) discard;
           vec3 col = mix(vec3(0.1, 0.6, 0.95), vec3(0.1, 0.98, 1.0), vAct);
           if (vGroup >= 1.5) col = mix(vec3(0.85, 0.45, 0.15), vec3(1.0, 0.9, 0.25), vAct);
-          float alpha = mix(0.0, 0.92, uXray);
-          gl_FragColor = vec4(col, (0.4 + 0.6 * vAct) * alpha * (1.0 - smoothstep(0.2, 0.5, r)));
+          float alpha = mix(0.0, 0.95, uXray);
+          gl_FragColor = vec4(col, (0.4 + 0.6 * vAct) * alpha * (1.0 - smoothstep(0.18, 0.5, r)));
         }
       `,
     });
 
     const brainPoints = new THREE.Points(brainGeom, brainMat);
-    const brainGroup = new THREE.Group();
-    brainGroup.scale.setScalar(0.0175);
-    brainGroup.position.set(0, 0.004, 0.042);
-    brainGroup.add(brainPoints);
-    modelContainer.add(brainGroup);
+    // 🧠 精确嵌合在 Flybody 头颅复眼中央
+    brainInHead.position.set(0, 0.038, 0.118);
+    brainInHead.scale.setScalar(0.0172);
+    brainInHead.add(brainPoints);
 
     // 5. 视口自适应
     const fit = () => {
@@ -512,6 +530,9 @@ export function MacDesktopFlyPet({ atlas }: Props) {
         if (now - lastUiUpdate > 180) {
           lastUiUpdate = now;
           setDiagnostics(d);
+          if (showCockpitRef.current && curFrame) {
+            setCurrentFrame(curFrame);
+          }
           const screenPxX = screenW / 2 + flyX;
           const screenPxY = screenH / 2 - flyY;
           setHitboxPos({ x: screenPxX, y: screenPxY });
@@ -524,9 +545,9 @@ export function MacDesktopFlyPet({ atlas }: Props) {
           });
         }
 
-        // 自然生物视觉体量：基础设为 56 像素 (清晰呈现六足倒腾与复眼扑翼细节，特写 140 像素)
-        const targetPixelSize = isMag ? 140 : 56;
-        const realScale = targetPixelSize * 3.5;
+        // 自然生物视觉体量：基础设为 52 像素 (真实米粒黄金体量，特写 140 像素)
+        const targetPixelSize = isMag ? 140 : 52;
+        const realScale = targetPixelSize * 2.8;
         flyRoot.scale.setScalar(realScale);
 
         // 灵动岛动力学状态流转
@@ -613,98 +634,44 @@ export function MacDesktopFlyPet({ atlas }: Props) {
         const rollWobble = (roamMode === "screen_crawling" && d.stage !== "sleeping") ? Math.sin(t * 18) * 0.05 : 0;
         flyRoot.rotation.set(pitchAngle, rollWobble, -heading);
 
-        // 腹部微弱呼吸与触角颤动
-        const breathe = 1 + Math.sin(t * 3.6) * 0.045;
-        abdomenGroup.scale.set(breathe, breathe * 0.95, 1 + Math.sin(t * 3.6) * 0.06);
-        antL.rotation.x = 0.5 + Math.sin(t * 22) * 0.08;
-        antR.rotation.x = 0.5 + Math.cos(t * 22) * 0.08;
+        // 真实的机体微呼吸
+        const breathe = 1 + Math.sin(t * 3.6) * 0.015;
+        flybodyRoot.scale.set(breathe, breathe, 1 + Math.sin(t * 3.6) * 0.02);
 
-        // 翅膀扇动
+        // 翅膀扇动与自然收拢
         if (isAir || d.wingFlappingHz > 100) {
-          const flap = Math.sin(t * 70) * 0.52;
-          leftWingPivot.rotation.set(-0.25, 0.4, 0.45 + flap);
-          rightWingPivot.rotation.set(-0.25, -0.4, -0.45 - flap);
+          const flap = Math.sin(t * 72) * 0.52;
+          leftWingPivot.rotation.set(-0.25, 0.38 + Math.cos(t * 72) * 0.18, 0.45 + flap);
+          rightWingPivot.rotation.set(-0.25, -0.38 - Math.cos(t * 72) * 0.18, -0.45 - flap);
         } else if (d.stage === "grooming_wings") {
           const flick = Math.sin(t * 24) * 0.18;
-          leftWingPivot.rotation.set(0.04, -0.22 + flick * 0.5, 0.04 + flick);
-          rightWingPivot.rotation.set(0.04, 0.22 - flick * 0.5, -0.04 - flick);
+          leftWingPivot.rotation.set(0.05, -0.22 + flick * 0.4, 0.04 + flick);
+          rightWingPivot.rotation.set(0.05, 0.22 - flick * 0.4, -0.04 - flick);
         } else {
-          // 停歇时两翅收拢重叠在背上
-          leftWingPivot.rotation.set(0.05, -0.18, 0.04);
-          rightWingPivot.rotation.set(0.05, 0.18, -0.04);
+          // 停歇时两翅如真实果蝇般剪刀状合拢在背上
+          leftWingPivot.rotation.set(0.05, -0.22, 0.04);
+          rightWingPivot.rotation.set(0.05, 0.22, -0.04);
         }
 
-        // ── 真实的昆虫六足三角步态 (Tripod Gait Kinematics) ──
-        if (isAir) {
-          // 飞行中：六足向后上方收拢折叠，形成低风阻流线型
-          legFL.hip.rotation.set(-0.4, -0.2, -0.3);
-          legFR.hip.rotation.set(-0.4, 0.2, 0.3);
-          legML.hip.rotation.set(-0.6, -0.3, -0.4);
-          legMR.hip.rotation.set(-0.6, 0.3, 0.4);
-          legHL.hip.rotation.set(-0.8, -0.2, -0.2);
-          legHR.hip.rotation.set(-0.8, 0.2, 0.2);
-
-          legFL.knee.rotation.x = 0.8;
-          legFR.knee.rotation.x = 0.8;
-          legML.knee.rotation.x = 1.0;
-          legMR.knee.rotation.x = 1.0;
-          legHL.knee.rotation.x = 1.2;
-          legHR.knee.rotation.x = 1.2;
-        } else if (d.stage === "grooming_face") {
-          // 洗脸理毛：前两足抬起在眼睛前快速搓动
-          const rubL = Math.sin(t * 28) * 0.35;
-          const rubR = Math.cos(t * 28) * 0.35;
-          legFL.hip.rotation.set(0.6 + rubL, -0.2, -0.4);
-          legFR.hip.rotation.set(0.6 + rubR, 0.2, 0.4);
-          legFL.knee.rotation.x = 0.9 + rubL * 0.4;
-          legFR.knee.rotation.x = 0.9 + rubR * 0.4;
-
-          // 中足后足保持稳固支撑
-          legML.hip.rotation.set(0.0, -0.5, -0.3);
-          legMR.hip.rotation.set(0.0, 0.5, 0.3);
-          legHL.hip.rotation.set(-0.2, -0.3, -0.2);
-          legHR.hip.rotation.set(-0.2, 0.3, 0.2);
+        // 前足洗脸理毛与真实步态动作机
+        if (d.stage === "grooming_face") {
+          // 洗脸搓眼：两前足交替抬起到复眼前抚拭触角与眼睛
+          const rubL = Math.sin(t * 26) * 0.35;
+          const rubR = Math.cos(t * 26) * 0.35;
+          frontLeftPivot.rotation.set(-0.35 + rubL, 0.1, 0.25 + Math.cos(t * 26) * 0.1);
+          frontRightPivot.rotation.set(-0.35 + rubR, -0.1, -0.25 - Math.cos(t * 26) * 0.1);
         } else if (roamMode === "screen_crawling" && d.stage !== "sleeping") {
-          // 真实三角步态：Group A (FL, MR, HL) 与 Group B (FR, ML, HR) 180度反相交替倒腾！
-          const gaitPhase = t * 20; // 步态速度
-          const swingA = Math.sin(gaitPhase);
-          const liftA = Math.max(0, Math.cos(gaitPhase)) * 0.25;
-
-          const swingB = Math.sin(gaitPhase + Math.PI);
-          const liftB = Math.max(0, Math.cos(gaitPhase + Math.PI)) * 0.25;
-
-          // Group A (前左, 中右, 后左)
-          legFL.hip.rotation.set(0.25 + swingA * 0.38, -0.3, -0.2 - liftA);
-          legMR.hip.rotation.set(0.0 + swingA * 0.35, 0.55, 0.3 + liftA);
-          legHL.hip.rotation.set(-0.25 + swingA * 0.4, -0.45, -0.2 - liftA);
-
-          legFL.knee.rotation.x = 0.5 + liftA * 0.6;
-          legMR.knee.rotation.x = 0.6 + liftA * 0.6;
-          legHL.knee.rotation.x = 0.7 + liftA * 0.6;
-
-          // Group B (前右, 中左, 后右)
-          legFR.hip.rotation.set(0.25 + swingB * 0.38, 0.3, 0.2 + liftB);
-          legML.hip.rotation.set(0.0 + swingB * 0.35, -0.55, -0.3 - liftB);
-          legHR.hip.rotation.set(-0.25 + swingB * 0.4, 0.45, 0.2 + liftB);
-
-          legFR.knee.rotation.x = 0.5 + liftB * 0.6;
-          legML.knee.rotation.x = 0.6 + liftB * 0.6;
-          legHR.knee.rotation.x = 0.7 + liftB * 0.6;
+          // 爬行迈步：前足自然交替
+          const step = Math.sin(t * 18) * 0.26;
+          frontLeftPivot.rotation.set(step, 0, 0.08);
+          frontRightPivot.rotation.set(-step, 0, -0.08);
+        } else if (isAir) {
+          // 飞行中前足收拢流线型
+          frontLeftPivot.rotation.set(-0.5, 0.15, 0.25);
+          frontRightPivot.rotation.set(-0.5, -0.15, -0.25);
         } else {
-          // 停歇休整态：六足平稳自然着地支撑
-          legFL.hip.rotation.set(0.22, -0.35, -0.2);
-          legFR.hip.rotation.set(0.22, 0.35, 0.2);
-          legML.hip.rotation.set(0.0, -0.5, -0.25);
-          legMR.hip.rotation.set(0.0, 0.5, 0.25);
-          legHL.hip.rotation.set(-0.25, -0.4, -0.2);
-          legHR.hip.rotation.set(-0.25, 0.4, 0.2);
-
-          legFL.knee.rotation.x = 0.5;
-          legFR.knee.rotation.x = 0.5;
-          legML.knee.rotation.x = 0.55;
-          legMR.knee.rotation.x = 0.55;
-          legHL.knee.rotation.x = 0.65;
-          legHR.knee.rotation.x = 0.65;
+          frontLeftPivot.rotation.set(0, 0, 0);
+          frontRightPivot.rotation.set(0, 0, 0);
         }
 
         // 脑电星系微光
@@ -731,22 +698,43 @@ export function MacDesktopFlyPet({ atlas }: Props) {
       observer.disconnect();
       brainGeom.dispose();
       brainMat.dispose();
-      matAmber.dispose();
-      matDarkThorax.dispose();
-      matRubyEye.dispose();
-      matAbdomen.dispose();
-      matWing.dispose();
-      matLeg.dispose();
-      matAntenna.dispose();
+      Object.values(materials).forEach((m) => m.dispose());
       renderer.dispose();
       renderer.domElement.remove();
     };
   }, [atlas]);
 
+  // 监控舱内的实时神经刺激注入处理
+  const handleStimulate = (type: "giant_fiber" | "sucrose" | "apple" | "home") => {
+    if (type === "giant_fiber") {
+      actionTriggerRef.current.startle?.();
+    } else if (type === "sucrose") {
+      actionTriggerRef.current.feed?.();
+    } else if (type === "apple") {
+      if (lifeEngineRef.current) {
+        lifeEngineRef.current.setStage("approaching_food");
+      }
+    } else if (type === "home") {
+      actionTriggerRef.current.goHome?.();
+    }
+  };
+
   return (
     <div className="desktop-pet-window">
       {/* 100% 透明全屏视口 */}
       <div ref={host} className="pet-canvas-viewport" />
+
+      {/* 桌面右上角常驻极简后台指示标 (微弱透明，不干扰工作，随时一键展开) */}
+      <div
+        className={`cockpit-toggle-pill ${showCockpit ? "active" : ""}`}
+        onClick={() => {
+          setShowCockpit(!showCockpit);
+          setElectronMouseIgnore(!showCockpit);
+        }}
+        title="打开/收起神经思考监控舱 (全局快捷键 Cmd+Shift+B)"
+      >
+        🧠 神经思考监控舱
+      </div>
 
       {/* 果蝇触碰感应热区 (点击直接触发巨纤维惊飞起飞，悬停唤起轻量微药丸) */}
       <div
@@ -785,11 +773,22 @@ export function MacDesktopFlyPet({ atlas }: Props) {
           <div className="tabii-bubble-actions">
             <button
               type="button"
+              className={`tabii-pill-btn ${showCockpit ? "active" : ""}`}
+              onClick={() => {
+                setShowCockpit(!showCockpit);
+                setElectronMouseIgnore(!showCockpit);
+              }}
+              title="打开/收起神经思考监控舱 (快捷键 Cmd+Shift+B)"
+            >
+              🧠 思考后台
+            </button>
+            <button
+              type="button"
               className={`tabii-pill-btn ${showBrainXray ? "active" : ""}`}
               onClick={() => setShowBrainXray(!showBrainXray)}
               title="透视颅内 12.4 万脑神经星系"
             >
-              🧠 透视
+              🌌 透视
             </button>
             <button
               type="button"
@@ -817,6 +816,20 @@ export function MacDesktopFlyPet({ atlas }: Props) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* 后台神经元实时思考监控舱 (Neural Cockpit) */}
+      {showCockpit && (
+        <NeuralThoughtCockpit
+          atlas={atlas}
+          frame={currentFrame}
+          diagnostics={diagnostics}
+          onClose={() => {
+            setShowCockpit(false);
+            setElectronMouseIgnore(true);
+          }}
+          onStimulate={handleStimulate}
+        />
       )}
     </div>
   );
