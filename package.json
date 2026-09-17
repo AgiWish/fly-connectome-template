@@ -7,8 +7,10 @@
   "engines": {
     "node": ">=22.18.0"
   },
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "desktop": "electron .",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
@@ -25,6 +27,7 @@
     "@types/react-dom": "19.2.3",
     "@types/three": "0.186.0",
     "@vitejs/plugin-react": "6.0.2",
+    "electron": "^44.4.1",
     "typescript": "5.9.3",
     "vite": "8.3.0"
   }

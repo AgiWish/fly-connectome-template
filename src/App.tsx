@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { BrainScene } from './components/BrainScene';
-import { FlyScene } from './components/FlyScene';
-import { Environment } from './components/Environment';
+import { HomeRealisticArena } from './components/HomeRealisticArena';
+import { UnifiedXRayWorkbench } from './components/UnifiedXRayWorkbench';
+import { MacDesktopFlyPet } from './components/MacDesktopFlyPet';
 import { Attribution } from './components/Attribution';
 import { asset, loadAtlas, type Atlas } from './lib/atlas';
-import { frameAt, parseReplay, type ModelReplay } from './lib/replay';
+import { frameAt, parseReplay, type ModelReplay, type ActivityFrame } from './lib/replay';
+import {
+  AutonomousFlyLifeEngine,
+  type LifeDiagnostics,
+} from './lib/autonomous-fly-life';
+import {
+  LiveBrainEngine,
+  type StimulusInput,
+  type ThoughtDiagnostics,
+} from './lib/live-brain';
+
+type Mode = 'desktop_pet' | 'home_life' | 'xray_lab' | 'replay';
 
 const KIND_LABEL: Record<ModelReplay['source']['kind'], string> = {
   synthetic: '合成演示',
@@ -12,75 +23,393 @@ const KIND_LABEL: Record<ModelReplay['source']['kind'], string> = {
   measured: '实测数据',
 };
 
+const isElectron = typeof window !== 'undefined' && (
+  window.navigator.userAgent.includes('Electron') ||
+  window.location.search.includes('mode=pet')
+);
+
 export function App() {
-  const [atlas,setAtlas] = useState<Atlas|null>(null);
-  const [error,setError] = useState('');
-  const [replay,setReplay] = useState<ModelReplay|null>(null);
-  const [playing,setPlaying] = useState(true), [time,setTime] = useState(0);
+  const [atlas, setAtlas] = useState<Atlas | null>(null);
+  const [error, setError] = useState('');
+  const [mode, setMode] = useState<Mode>('desktop_pet');
+
+  // 家居写实生活引擎
+  const lifeEngineRef = useRef<AutonomousFlyLifeEngine | null>(null);
+  const [lifeFrame, setLifeFrame] = useState<ActivityFrame | null>(null);
+  const [lifeDiag, setLifeDiag] = useState<LifeDiagnostics | null>(null);
+  const [macroCamera, setMacroCamera] = useState(true);
+
+  // 生活大事记抽屉展开状态
+  const [showDiaryDrawer, setShowDiaryDrawer] = useState(false);
+
+  // X-Ray 实验室引擎状态
+  const xRayEngineRef = useRef<LiveBrainEngine | null>(null);
+  const [xrayOpacity, setXrayOpacity] = useState(0.55);
+  const [stimulus, setStimulus] = useState<StimulusInput>({
+    x: 0,
+    y: 0,
+    speed: 0,
+    isLooming: false,
+    interactive: false,
+  });
+  const stimulusRef = useRef(stimulus);
+  useEffect(() => { stimulusRef.current = stimulus; }, [stimulus]);
+  const [xrayFrame, setXrayFrame] = useState<ActivityFrame | null>(null);
+  const [xrayDiag, setXrayDiag] = useState<ThoughtDiagnostics | null>(null);
+
+  // 离线数据回放状态
+  const [replay, setReplay] = useState<ModelReplay | null>(null);
+  const [playing, setPlaying] = useState(true);
+  const [time, setTime] = useState(0);
   const file = useRef<HTMLInputElement>(null);
   const duration = replay?.frames.at(-1)?.time ?? 30;
+
+  // 初始化加载 MaleCNS 真实解剖图谱
   useEffect(() => {
     const abort = new AbortController();
-    void loadAtlas(abort.signal).then(setAtlas).catch(e=>{if(!abort.signal.aborted)setError(String(e));});
+    void loadAtlas(abort.signal)
+      .then(loaded => {
+        setAtlas(loaded);
+        lifeEngineRef.current = new AutonomousFlyLifeEngine(loaded);
+        xRayEngineRef.current = new LiveBrainEngine(loaded);
+      })
+      .catch(e => {
+        if (!abort.signal.aborted) setError(String(e));
+      });
     return () => abort.abort();
-  },[]);
+  }, []);
+
+  // 真实家居生活循环 (完全自主常驻挂机)
   useEffect(() => {
-    if(!playing) return;
-    let previous = performance.now(), frame = 0;
-    const step = (now:number) => {
-      const delta = document.hidden ? 0 : Math.min(.1,(now-previous)/1000); previous=now;
-      setTime(value => Math.min(duration,value+delta));
-      frame=requestAnimationFrame(step);
+    if (mode !== 'home_life' || !atlas) return;
+    let frameId = 0;
+    let prev = performance.now();
+    let lastUiUpdate = 0;
+
+    const loop = (now: number) => {
+      const dt = Math.min(0.05, (now - prev) / 1000);
+      prev = now;
+
+      if (lifeEngineRef.current) {
+        const res = lifeEngineRef.current.step(dt, true);
+        setLifeFrame(res.frame);
+        if (now - lastUiUpdate > 250) {
+          lastUiUpdate = now;
+          setLifeDiag(res.diagnostics);
+        }
+      }
+      frameId = requestAnimationFrame(loop);
     };
-    frame=requestAnimationFrame(step);
+
+    frameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frameId);
+  }, [mode, atlas]);
+
+  // X-Ray 实验室交互循环
+  useEffect(() => {
+    if (mode !== 'xray_lab' || !atlas) return;
+    let frameId = 0;
+    let prev = performance.now();
+
+    const loop = (now: number) => {
+      const dt = Math.min(0.05, (now - prev) / 1000);
+      prev = now;
+
+      if (xRayEngineRef.current) {
+        const res = xRayEngineRef.current.step(stimulusRef.current, dt);
+        setXrayFrame(res.frame);
+        setXrayDiag(res.diagnostics);
+      }
+      frameId = requestAnimationFrame(loop);
+    };
+
+    frameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frameId);
+  }, [mode, atlas]);
+
+  // 回放模式循环
+  useEffect(() => {
+    if (mode !== 'replay' || !playing) return;
+    let previous = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
+      const delta = document.hidden ? 0 : Math.min(0.1, (now - previous) / 1000);
+      previous = now;
+      setTime(value => Math.min(duration, value + delta));
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  },[playing,duration]);
-  useEffect(()=>{if(time>=duration)setPlaying(false);},[time,duration]);
-  const accept = (value:unknown) => {
-    if(!atlas) throw Error('请稍候，脑图谱还在加载中。');
-    const validated = parseReplay(value,atlas.visibleIds);
-    setReplay(validated);setTime(0);setPlaying(false);setError('');
+  }, [mode, playing, duration]);
+
+  useEffect(() => {
+    if (mode === 'replay' && time >= duration) setPlaying(false);
+  }, [mode, time, duration]);
+
+  const acceptReplay = (value: unknown) => {
+    if (!atlas) throw Error('请稍候，脑图谱还在加载中。');
+    const validated = parseReplay(value, atlas.visibleIds);
+    setReplay(validated);
+    setTime(0);
+    setPlaying(false);
+    setError('');
+    setMode('replay');
   };
-  const example = async () => {
-    try {const response=await fetch(asset('examples/model-output.example.json'));if(!response.ok)throw Error('示例数据加载失败。');accept(await response.json());}
-    catch(e){setError(String(e));}
+
+  const loadSyntheticExample = async () => {
+    try {
+      const response = await fetch(asset('examples/model-output.example.json'));
+      if (!response.ok) throw Error('示例数据加载失败。');
+      acceptReplay(await response.json());
+    } catch (e) {
+      setError(String(e));
+    }
   };
-  const frame = replay ? frameAt(replay,time) : null;
-  return <>
-    <header><h1>果蝇大脑实验台</h1><span>环境刺激 / 解剖结构 / 模型输出</span><a href="https://github.com/cobanov/fly-connectome-template#readme">模板使用指南 ↗</a></header>
-    <main>
-      <p className="intro">这是一个果蝇大脑可视化工作台：左边是<b>刺激环境</b>（当前只是一个示例光点，可以换成你的游戏）；中间是雄性果蝇神经系统的 <b>12.4 万个真实神经元胞体</b> 3D 图谱（MaleCNS v1.0 实测数据）；右边是果蝇<b>身体</b>解剖模型。点击「加载合成示例」再点「播放」，就能看到神经活动信号在大脑里随时间亮起。注意：它本身不会产生神经活动，只负责把你喂给它的模型输出画出来。</p>
-      <div className="toolbar">
-        <span className="status">{playing?'运行中':'已暂停'} · {time.toFixed(2)} 秒</span>
-        <div className="controls">
-          <button onClick={()=>{setTime(0);setPlaying(false);}}>重置</button>
-          <button onClick={()=>{if(time>=duration)setTime(0);setPlaying(!playing);}}>{playing?'暂停':'播放'}</button>
-          <button disabled={!atlas} onClick={()=>void example()}>加载合成示例</button>
-          <button disabled={!atlas} onClick={()=>file.current?.click()}>加载模型 JSON</button>
-          {replay&&<button onClick={()=>{setReplay(null);setTime(0);setPlaying(false);}}>清除输出</button>}
-          <input ref={file} hidden type="file" accept=".json,application/json" onChange={async event=>{
-            const selected=event.target.files?.[0];event.target.value='';if(!selected)return;
-            try {if(selected.size>10*1024*1024)throw Error('回放文件不能超过 10 MB。');accept(JSON.parse(await selected.text()));} catch(e){setError(String(e));}
-          }}/>
+
+  // 格式化累计陪伴时长
+  const totalSeconds = lifeDiag?.persistentData.totalActiveSeconds ?? 0;
+  const companionDays = Math.floor(totalSeconds / 86400);
+  const companionHours = Math.floor((totalSeconds % 86400) / 3600);
+  const companionMins = Math.floor((totalSeconds % 3600) / 60);
+
+  // 桌面宠物全透明模式时切换 body 样式
+  useEffect(() => {
+    if (mode === 'desktop_pet') {
+      document.body.classList.add('desktop-pet-mode');
+      document.documentElement.classList.add('desktop-pet-mode');
+    } else {
+      document.body.classList.remove('desktop-pet-mode');
+      document.documentElement.classList.remove('desktop-pet-mode');
+    }
+  }, [mode]);
+
+  // 原生桌面透明宠物模式 (Electron 或极简挂机)
+  if (mode === 'desktop_pet') {
+    return atlas ? (
+      <div style={{ position: 'relative', width: '100vw', height: '100vh', background: 'transparent' }}>
+        <MacDesktopFlyPet atlas={atlas} />
+        {!isElectron && (
+          <button
+            type="button"
+            style={{
+              position: 'fixed',
+              top: 10,
+              left: 10,
+              zIndex: 9999,
+              opacity: 0.6,
+              fontSize: 10,
+              background: 'rgba(15,23,42,0.7)',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+            onClick={() => setMode('home_life')}
+          >
+            ← 返回完整工作台
+          </button>
+        )}
+      </div>
+    ) : (
+      <div style={{ color: '#94a3b8', padding: 20, fontSize: 11, background: 'transparent' }}>
+        正在同步 MaleCNS 真实神经元并降临 Mac 桌面…
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      {/* 顶部现代化毛玻璃导航 */}
+      <header className="glass-header">
+        <div className="brand-group">
+          <h1>微观生态数字生命 · 果蝇全天候伴侣</h1>
+          <span className="subtitle">MaleCNS 124,289 实测神经元 · 真实昼夜生物节律 · 数据永久保留</span>
         </div>
-      </div>
-      {error&&<p className="error" role="alert">{error}</p>}
-      <div className="workbench">
-        <section className="panel environment-panel"><h2>01 / 环境刺激</h2><Environment time={time}/><div className="panel-bottom">通用刺激 · 未内置游戏或奖励机制</div></section>
-        <section className="panel brain-panel"><h2>02 / 大脑胞体图谱 <span>MaleCNS v1.0</span></h2>
-          {atlas?<BrainScene atlas={atlas} frame={frame}/>:<p className="loading" role="status">正在加载实测解剖数据…</p>}
-          <div className="panel-bottom">{atlas?.visibleIds.size.toLocaleString('zh-CN') ?? '…'} 个实测胞体 <a href={asset('data/brain-atlas/NOTICE.md')}>数据说明 ↗</a></div>
-        </section>
-        <section className="panel fly-panel"><h2>03 / 身体 <span>Flybody</span></h2><FlyScene/><div className="panel-bottom">解剖网格 · 无运动仿真 <span>拖动可旋转</span></div></section>
-      </div>
-      <section className="model-status" aria-label="模型来源说明">
-        <strong>{replay ? `${KIND_LABEL[replay.source.kind]}输出` : '仅解剖结构'}</strong>
-        <p>{replay ? replay.source.name : '未连接任何神经模型，默认不会生成神经活动。'}</p>
-        {replay&&<><p>归一化方式：{replay.source.normalization}</p><p>{replay.source.kind==='synthetic'?'当前只是演示数值：不是真实神经活动，也不由左侧刺激驱动。':'来源类别由上传文件自行声明，本查看器不做独立验证。'}</p></>}
-        <label>实验时间 <input type="range" aria-label="实验时间" min="0" max={duration} step=".01" value={time} onChange={event=>setTime(Number(event.target.value))}/><span>{duration.toFixed(1)} 秒</span></label>
-      </section>
-      <details><summary>科学边界与自定义说明</summary><p>图谱只包含经过整理的胞体位置，不包含神经突形态或突触连接；点位保持原始比例，缺失的胞体位置不会被编造。大脑过滤器只选取视叶、中央脑和下行神经元类别，并不是完整的脑分割。</p><p>把 Environment.tsx 替换成你的环境；用 MaleCNS 胞体 ID 和以秒为单位的时间，把 ActivityFrame 活动帧传给 BrainScene。JSON 加载器会校验数据集、可见 ID 和归一化数值。GPU 训练和模型推理需要在本查看器之外单独运行。</p><p>数据集贡献者：FlyEM / HHMI Janelia、剑桥大学、MRC 分子生物学实验室和 Google Research。<a href="https://male-cns.janelia.org/download/">MaleCNS 数据与论文</a>，CC BY 4.0。<a href={asset('data/brain-atlas/manifest.json')}>确切来源、过滤条件与哈希值</a>。</p><p>模板代码采用自定义的署名要求许可证：请在你的网页 UI 和仓库 README 中保留模板/作者的署名链接。第三方资源保留其各自许可证。</p></details>
-    </main>
-    <Attribution/>
-  </>;
+
+        <div className="header-controls">
+          <div className="mode-toggle">
+            <button
+              type="button"
+              className=""
+              onClick={() => setMode('desktop_pet')}
+              title="切换为 100% 透明轻量悬浮宠物形态"
+            >
+              🖥️ 桌面透明宠物
+            </button>
+            <button
+              type="button"
+              className={mode === 'home_life' ? 'active-mode' : ''}
+              onClick={() => setMode('home_life')}
+            >
+              🏡 真实微观生活 (挂机)
+            </button>
+            <button
+              type="button"
+              className={mode === 'xray_lab' ? 'active-mode' : ''}
+              onClick={() => setMode('xray_lab')}
+            >
+              🔬 赛博透视镜
+            </button>
+            <button
+              type="button"
+              className={mode === 'replay' ? 'active-mode' : ''}
+              onClick={() => setMode('replay')}
+            >
+              📁 数据回放
+            </button>
+          </div>
+
+          {mode === 'home_life' && (
+            <button
+              type="button"
+              className={`diary-toggle-btn ${showDiaryDrawer ? 'btn-active' : ''}`}
+              onClick={() => setShowDiaryDrawer(!showDiaryDrawer)}
+            >
+              📖 生活大事记 ({lifeDiag?.persistentData.events.length ?? 0})
+            </button>
+          )}
+
+          {mode === 'xray_lab' && (
+            <div className="xray-control-box">
+              <label>
+                🔍 透视：
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={xrayOpacity}
+                  onChange={e => setXrayOpacity(Number(e.target.value))}
+                />
+              </label>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* 主视窗舞台 */}
+      <main className="immersive-stage">
+        {mode === 'home_life' ? (
+          atlas ? (
+            <div className="home-stage-wrapper">
+              <HomeRealisticArena
+                atlas={atlas}
+                frame={lifeFrame}
+                diagnostics={lifeDiag}
+                macroCamera={macroCamera}
+              />
+
+              {/* 悬浮生活状态卡片 (右上方毛玻璃) */}
+              <div className="floating-pet-card">
+                <div className="pet-card-title">
+                  <span className="pet-name">🪰 {lifeDiag?.persistentData.name ?? '小飞'}</span>
+                  <span className="pet-age">
+                    陪伴 {companionDays > 0 ? `${companionDays}天 ` : ''}
+                    {companionHours > 0 ? `${companionHours}小时 ` : ''}
+                    {companionMins}分钟
+                  </span>
+                </div>
+                <div className="pet-status-row">
+                  <span className="status-label">当前状态：</span>
+                  <span className="status-value">{lifeDiag?.stageName ?? '漫步中'}</span>
+                </div>
+                <div className="pet-stat-bar">
+                  <span>饱腹感：</span>
+                  <div className="progress-track">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${Math.round((1 - (lifeDiag?.hunger ?? 0)) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="progress-num">{Math.round((1 - (lifeDiag?.hunger ?? 0)) * 100)}%</span>
+                </div>
+                <div className="pet-metrics-grid">
+                  <div>爬行步数：<b>{(lifeDiag?.persistentData.totalSteps ?? 0).toLocaleString()}</b></div>
+                  <div>进食次数：<b>{lifeDiag?.persistentData.totalFeeds ?? 0} 次</b></div>
+                  <div>飞行里程：<b>{(lifeDiag?.persistentData.totalFlightMeters ?? 0).toFixed(1)} 米</b></div>
+                  <div>睡眠时长：<b>{Math.round(lifeDiag?.persistentData.totalSleepMinutes ?? 0)} 分</b></div>
+                </div>
+              </div>
+
+              {/* 悬浮底部工具栏 */}
+              <div className="floating-bottom-bar">
+                <button
+                  type="button"
+                  className={`macro-btn ${macroCamera ? 'macro-active' : ''}`}
+                  onClick={() => setMacroCamera(!macroCamera)}
+                >
+                  📹 微距电影跟拍：{macroCamera ? '开' : '关'}
+                </button>
+                <div className="live-event-ticker">
+                  <b>🕒 最新动向：</b> {lifeDiag?.diaryMessage ?? '在餐桌上自然踱步嗅探…'}
+                </div>
+                <div className="time-badge">
+                  {((lifeDiag?.timeOfDayHour ?? 12) >= 22 || (lifeDiag?.timeOfDayHour ?? 12) < 6.5)
+                    ? '🌙 静谧夜间月光'
+                    : ((lifeDiag?.timeOfDayHour ?? 12) >= 17 && (lifeDiag?.timeOfDayHour ?? 12) < 20)
+                    ? '🌅 傍晚金色余晖'
+                    : '☀️ 室内暖阳'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="loading-container">
+              <p className="loading">正在组装微观生活生态与 12.4 万全脑神经星系…</p>
+            </div>
+          )
+        ) : mode === 'xray_lab' ? (
+          atlas ? (
+            <UnifiedXRayWorkbench
+              atlas={atlas}
+              frame={xrayFrame}
+              stimulus={stimulus}
+              diagnostics={xrayDiag}
+              xrayOpacity={xrayOpacity}
+              onStimulusMove={setStimulus}
+            />
+          ) : null
+        ) : (
+          atlas ? (
+            <UnifiedXRayWorkbench
+              atlas={atlas}
+              frame={replay ? frameAt(replay, time) : null}
+              stimulus={stimulus}
+              diagnostics={null}
+              xrayOpacity={0.65}
+            />
+          ) : null
+        )}
+
+        {/* 右侧滑出式生活大事记抽屉 (Life Diary Drawer) */}
+        {showDiaryDrawer && (
+          <aside className="diary-drawer" aria-label="生活大事记抽屉">
+            <div className="drawer-header">
+              <h3>📖 果蝇生活大事记</h3>
+              <button
+                type="button"
+                className="close-drawer-btn"
+                onClick={() => setShowDiaryDrawer(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <p className="drawer-desc">
+              数据保存在本地浏览器中，记录这只小生命的每一个真实生活瞬间。
+            </p>
+            <div className="timeline-list">
+              {(lifeDiag?.persistentData.events ?? []).map(ev => (
+                <div key={ev.id} className={`timeline-item type-${ev.type}`}>
+                  <div className="timeline-meta">
+                    <span className="timeline-time">{ev.timeStr}</span>
+                    <span className="timeline-tag">{ev.title}</span>
+                  </div>
+                  <div className="timeline-detail">{ev.detail}</div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
+      </main>
+
+      {error && <p className="error" role="alert">{error}</p>}
+      <Attribution />
+    </div>
+  );
 }

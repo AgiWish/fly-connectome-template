@@ -1,6 +1,545 @@
-:root { color-scheme:dark; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:#d6dce3; background:#0b0e12; font-synthesis:none; }
-* { box-sizing:border-box; } body { margin:0; } a {color:#95bed6;text-underline-offset:3px;} button,input {font:inherit;} button {cursor:pointer;background:#151b22;border:1px solid #344150;color:#d6dce3;padding:8px 11px;font-size:11px;min-height:34px;} button:hover {background:#222d39;} button:disabled {opacity:.45;cursor:wait;} button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible {outline:2px solid #84d7ef;outline-offset:3px;} header,main,footer {max-width:1680px;margin:auto;} header {display:flex;align-items:center;gap:20px;padding:20px 24px;border-bottom:1px solid #28323e;} h1 {font-size:15px;letter-spacing:.06em;margin:0;} header>span {font-size:10px;color:#8291a4;} header>a {margin-left:auto;font-size:11px;} main {padding:0 24px;} .toolbar {display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 0;} .status {font-size:11px;color:#a6b4c5;white-space:nowrap;} .controls {display:flex;gap:6px;flex-wrap:wrap;} .workbench {display:grid;grid-template-columns:1.3fr 1fr;grid-template-rows:repeat(2,minmax(290px,1fr));grid-template-areas:'environment brain' 'environment fly';height:max(580px,calc(100svh - 280px));gap:1px;background:#28323e;border:1px solid #28323e;}.panel {min-width:0;position:relative;overflow:hidden;background:#0c1117;} .environment-panel {grid-area:environment;} .brain-panel{grid-area:brain;} .fly-panel{grid-area:fly;} .panel h2 {position:absolute;inset:0 0 auto;z-index:4;height:36px;margin:0;padding:11px 13px;border-bottom:1px solid #28323e;font-size:10px;font-weight:400;display:flex;justify-content:space-between;background:#0f151c;}.panel h2 span{color:#7d8c9e;} .panel-bottom {position:absolute;inset:auto 0 0;z-index:4;min-height:33px;padding:10px 12px;border-top:1px solid #28323e;font-size:9px;display:flex;justify-content:space-between;gap:10px;background:#0f151c;color:#94a2b3;} .three-viewport {position:absolute;inset:36px 0 33px;touch-action:none;} .three-viewport canvas{display:block;width:100%;height:100%;}.brain-view-controls{position:absolute;top:44px;right:12px;z-index:5;display:flex;gap:5px;} .brain-view-controls button{min-height:25px;padding:4px 6px;font-size:9px;} .brain-legend{position:absolute;bottom:43px;left:12px;z-index:5;font-size:9px;color:#94a2b3;pointer-events:none;} .neural-load,.loading{margin:16px;font-size:11px;} .loading{margin-top:64px;} .environment {position:absolute;inset:48px 24px 45px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;} .environment svg{width:100%;max-width:500px;max-height:75%;} .environment p{font-size:12px;margin-top:25px;} .environment span {color:#7f91a7;font-size:10px;line-height:1.6;max-width:38ch;} .model-status{border:1px solid #28323e;border-top:0;padding:15px;font-size:11px;} .model-status strong{font-size:10px;color:#a8c4da;} .model-status p{margin:7px 0;color:#8e9eb2;line-height:1.5;} .model-status label{display:flex;align-items:center;gap:15px;font-size:10px;padding-top:10px;} .model-status input{flex:1;min-width:0;accent-color:#95bed6;} details{font-size:11px;line-height:1.8;padding:20px 0;color:#97a7ba;} summary{cursor:pointer;color:#c1cddd;} footer{padding:20px 24px;border-top:1px solid #28323e;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;font-size:10px;line-height:1.7;} .error{color:#ffc3b0;font-size:12px;border:1px solid #7d483b;padding:12px;}
-@media(max-width:760px){header,footer{padding:16px;}main{padding:0 12px;}header>span{display:none;}h1{font-size:12px;}header>a{font-size:10px;}.toolbar{flex-direction:column;align-items:stretch;}.controls{gap:5px;}.controls button{font-size:10px;}.workbench{grid-template-columns:1fr;grid-template-rows:400px 310px 320px;grid-template-areas:'environment' 'brain' 'fly';height:auto;}.model-status label{gap:8px;}.panel-bottom{font-size:8px;}footer{flex-direction:column;}}
-@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;}}
-.intro{font-size:12px;line-height:1.9;color:#a6b4c5;border:1px solid #28323e;padding:12px 15px;margin:16px 0 0;background:#0f151c;}
-.intro b{color:#d6dce3;font-weight:600;}
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #e2e8f0;
+  background: #090d13;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; overflow-x: hidden; background: #090d13; }
+a { color: #38bdf8; text-underline-offset: 3px; }
+button, input { font: inherit; }
+button {
+  cursor: pointer;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  padding: 6px 12px;
+  font-size: 11px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+button:hover { background: #334155; }
+button:disabled { opacity: 0.45; cursor: wait; }
+
+/* 全屏沉浸壳体 (无压迫黑边) */
+.app-shell {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 顶部现代化毛玻璃导航 */
+.glass-header {
+  height: 52px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(13, 19, 28, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  z-index: 20;
+}
+.brand-group h1 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: #f8fafc;
+  letter-spacing: 0.02em;
+}
+.subtitle {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-left: 10px;
+}
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 模式切换 */
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #0f172a;
+}
+.mode-toggle button {
+  border: 0;
+  border-radius: 0;
+  padding: 5px 12px;
+  font-size: 11px;
+  background: transparent;
+  color: #94a3b8;
+}
+.mode-toggle button.active-mode {
+  background: #0284c7;
+  color: #ffffff;
+  font-weight: 600;
+}
+.diary-toggle-btn {
+  background: #1e293b;
+  border-color: #3b82f6;
+  color: #93c5fd;
+  font-weight: 500;
+}
+.diary-toggle-btn.btn-active {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+/* 主视窗全屏舞台 */
+.immersive-stage {
+  flex: 1;
+  width: 100%;
+  height: calc(100vh - 52px);
+  position: relative;
+  overflow: hidden;
+}
+.home-stage-wrapper {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.home-arena-container.full-terrarium {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}
+.home-viewport {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.home-viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 右上方悬浮生命档案卡片 (毛玻璃) */
+.floating-pet-card {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 250px;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+  pointer-events: auto;
+}
+.pet-card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.pet-name { font-weight: 600; font-size: 13px; color: #38bdf8; }
+.pet-age { font-size: 10px; color: #94a3b8; }
+.pet-status-row {
+  font-size: 11px;
+  margin-bottom: 8px;
+  color: #e2e8f0;
+}
+.status-label { color: #94a3b8; }
+.status-value { color: #facc15; font-weight: 600; }
+
+.pet-stat-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+.progress-track {
+  flex: 1;
+  height: 6px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #10b981);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.progress-num { color: #10b981; font-weight: 600; font-size: 10px; }
+
+.pet-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-size: 10px;
+  color: #94a3b8;
+  background: rgba(30, 41, 59, 0.5);
+  padding: 8px;
+  border-radius: 5px;
+}
+.pet-metrics-grid b { color: #f1f5f9; }
+
+/* 底部悬浮控制与状态胶囊 */
+.floating-bottom-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 8px;
+  padding: 8px 14px;
+  z-index: 10;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.macro-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+.macro-btn.macro-active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+.live-event-ticker {
+  font-size: 11px;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+.live-event-ticker b { color: #f59e0b; }
+.time-badge {
+  font-size: 10px;
+  background: #1e293b;
+  color: #93c5fd;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+}
+
+/* 右侧滑出生活大事记抽屉 */
+.diary-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  background: rgba(11, 17, 26, 0.94);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid #334155;
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.7);
+  z-index: 30;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.25s ease-out;
+}
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 12px;
+  margin-bottom: 10px;
+}
+.drawer-header h3 { margin: 0; font-size: 14px; color: #f8fafc; font-weight: 600; }
+.close-drawer-btn {
+  background: transparent;
+  border: 0;
+  font-size: 16px;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.drawer-desc { font-size: 11px; color: #64748b; line-height: 1.5; margin: 0 0 14px; }
+.timeline-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+.timeline-item {
+  background: #131d2b;
+  border-left: 3px solid #38bdf8;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+.timeline-item.type-eat { border-left-color: #10b981; }
+.timeline-item.type-sleep { border-left-color: #818cf8; }
+.timeline-item.type-fly { border-left-color: #f59e0b; }
+.timeline-item.type-groom { border-left-color: #ec4899; }
+.timeline-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.timeline-time { font-size: 10px; color: #64748b; font-family: monospace; }
+.timeline-tag { font-size: 11px; font-weight: 600; color: #e2e8f0; }
+.timeline-detail { font-size: 11px; color: #94a3b8; line-height: 1.5; }
+
+/* 赛博透视镜兼容样式 */
+.unified-workbench-container { width: 100%; height: 100%; position: absolute; inset: 0; }
+.unified-viewport { width: 100%; height: 100%; touch-action: none; }
+.unified-viewport canvas { display: block; width: 100%; height: 100%; }
+.workbench-floating-actions { position: absolute; top: 16px; left: 20px; z-index: 10; }
+.looming-trigger-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid #ef4444;
+  color: #fca5a5;
+  font-weight: 600;
+  font-size: 11px;
+}
+.xray-control-box {
+  display: flex;
+  align-items: center;
+  background: #1e293b;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.xray-control-box input { accent-color: #38bdf8; width: 80px; }
+.neuron-hover-card.unified-card {
+  position: absolute; bottom: 20px; left: 20px; z-index: 10;
+  background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8;
+  padding: 10px 14px; font-size: 11px; border-radius: 6px;
+}
+.neuron-card-header { display: flex; justify-content: space-between; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 5px; }
+.neuron-id { color: #fbbf24; font-family: monospace; }
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #94a3b8;
+  font-size: 12px;
+}
+footer { display: none; } /* 沉浸全屏模式下隐藏传统 footer */
+
+@media (max-width: 768px) {
+  .subtitle { display: none; }
+  .floating-pet-card { width: calc(100% - 32px); top: auto; bottom: 70px; right: 16px; left: 16px; }
+  .floating-bottom-bar { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .live-event-ticker { max-width: 100%; }
+  .diary-drawer { width: 100%; }
+}
+
+/* =========================================================
+   macOS 原生桌面透明神经宠物模式样式 (100% 悬浮透明、无边框)
+   ========================================================= */
+body.desktop-pet-mode,
+html.desktop-pet-mode {
+  background: transparent !important;
+  overflow: hidden !important;
+  user-select: none;
+}
+
+.desktop-pet-window {
+  width: 100vw;
+  height: 100vh;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none; /* 整体穿透 */
+}
+
+.pet-canvas-viewport {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  pointer-events: none;
+}
+
+.pet-canvas-viewport canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  display: block;
+  pointer-events: none;
+}
+
+/* ── 果蝇身旁的无形动态感应热区 (跟随果蝇移动，仅在触碰时接管鼠标) ── */
+.fly-interactive-hitbox {
+  position: fixed;
+  width: 52px;
+  height: 52px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto; /* 允许触发 mouseenter 唤醒 */
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 10000;
+  background: transparent;
+}
+
+/* ── 极度精致轻盈的 macOS 半透明交互微胶囊 (仅在悬停时出现，绝非常驻大方框) ── */
+.tabii-thought-bubble {
+  position: fixed;
+  z-index: 10001;
+  pointer-events: auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 1px 4px rgba(0, 0, 0, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  animation: tabiiBubbleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  white-space: nowrap;
+}
+
+.tabii-thought-bubble.fading-out {
+  opacity: 0;
+  transform: scale(0.9) translateY(-4px);
+  pointer-events: none;
+}
+
+@keyframes tabiiBubbleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.88) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* 气泡顶栏：小果蝇身份与实时阶段 */
+.tabii-bubble-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tabii-bubble-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tabii-bubble-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border-radius: 999px;
+  font-weight: 600;
+
+}
+
+/* 神经回路实时独白 */
+.tabii-bubble-message {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #334155;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+/* 灵动微操作按钮栏 */
+.tabii-bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(203, 213, 225, 0.45);
+}
+
+.tabii-pill-btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.18s ease;
+}
+
+.tabii-pill-btn:hover {
+  background: #ffffff;
+  color: #0284c7;
+  border-color: rgba(56, 189, 248, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(56, 189, 248, 0.18);
+}
+
+.tabii-pill-btn:active {
+  transform: scale(0.96);
+}
+
+.tabii-pill-btn.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
+}
+
+.tabii-bubble-hint {
+  font-size: 10px;
+  color: #64748b;
+  text-align: center;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+  letter-spacing: 0.2px;
+}
+
+.tabii-bubble-hint b {
+  color: #0284c7;
+  font-weight: 600;
+}
