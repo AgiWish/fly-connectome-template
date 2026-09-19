@@ -35,7 +35,7 @@ export function App() {
 
   // 家居写实生活引擎
   const lifeEngineRef = useRef<AutonomousFlyLifeEngine | null>(null);
-  const [lifeFrame, setLifeFrame] = useState<ActivityFrame | null>(null);
+  // 高频帧数据走 ref（渲染组件按帧读取 current），避免 60fps React 重渲染整棵组件树
   const [lifeDiag, setLifeDiag] = useState<LifeDiagnostics | null>(null);
   const [macroCamera, setMacroCamera] = useState(true);
 
@@ -54,7 +54,7 @@ export function App() {
   });
   const stimulusRef = useRef(stimulus);
   useEffect(() => { stimulusRef.current = stimulus; }, [stimulus]);
-  const [xrayFrame, setXrayFrame] = useState<ActivityFrame | null>(null);
+  const xrayFrameRef = useRef<ActivityFrame | null>(null);
   const [xrayDiag, setXrayDiag] = useState<ThoughtDiagnostics | null>(null);
 
   // 离线数据回放状态
@@ -92,7 +92,6 @@ export function App() {
 
       if (lifeEngineRef.current) {
         const res = lifeEngineRef.current.step(dt, true);
-        setLifeFrame(res.frame);
         if (now - lastUiUpdate > 250) {
           lastUiUpdate = now;
           setLifeDiag(res.diagnostics);
@@ -110,6 +109,7 @@ export function App() {
     if (mode !== 'xray_lab' || !atlas) return;
     let frameId = 0;
     let prev = performance.now();
+    let lastUiUpdate = 0;
 
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - prev) / 1000);
@@ -117,8 +117,11 @@ export function App() {
 
       if (xRayEngineRef.current) {
         const res = xRayEngineRef.current.step(stimulusRef.current, dt);
-        setXrayFrame(res.frame);
-        setXrayDiag(res.diagnostics);
+        xrayFrameRef.current = res.frame;
+        if (now - lastUiUpdate > 250) {
+          lastUiUpdate = now;
+          setXrayDiag(res.diagnostics);
+        }
       }
       frameId = requestAnimationFrame(loop);
     };
@@ -291,7 +294,6 @@ export function App() {
             <div className="home-stage-wrapper">
               <HomeRealisticArena
                 atlas={atlas}
-                frame={lifeFrame}
                 diagnostics={lifeDiag}
                 macroCamera={macroCamera}
               />
@@ -358,7 +360,7 @@ export function App() {
           atlas ? (
             <UnifiedXRayWorkbench
               atlas={atlas}
-              frame={xrayFrame}
+              frame={xrayFrameRef}
               stimulus={stimulus}
               diagnostics={xrayDiag}
               xrayOpacity={xrayOpacity}

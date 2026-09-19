@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { asset, type Atlas } from "../lib/atlas";
-import type { ActivityFrame } from "../lib/replay";
 import type { LifeDiagnostics } from "../lib/autonomous-fly-life";
 
 type Props = {
   atlas: Atlas;
-  frame: ActivityFrame | null;
   diagnostics: LifeDiagnostics | null;
   macroCamera: boolean;
 };
@@ -30,18 +28,15 @@ const FLY_FEET_GROUND_OFFSET = 0.026;
 
 export function HomeRealisticArena({
   atlas,
-  frame,
   diagnostics,
   macroCamera,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
 
-  const signalRef = useRef(frame);
   const diagRef = useRef(diagnostics);
   const macroRef = useRef(macroCamera);
 
-  useEffect(() => { signalRef.current = frame; }, [frame]);
   useEffect(() => { diagRef.current = diagnostics; }, [diagnostics]);
   useEffect(() => { macroRef.current = macroCamera; }, [macroCamera]);
 

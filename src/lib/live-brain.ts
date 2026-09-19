@@ -172,11 +172,13 @@ export class LiveBrainEngine {
 
     // 6. 提取激活胞体
     const values: [number, number][] = [];
+    // 抖动相位时钟每步取一次即可，避免在内层循环里逐神经元调用 performance.now()
+    const jitterClock = performance.now() * 0.01;
     const pushSubset = (ids: number[], act: number, sampleRatio: number, jitter: number) => {
       if (act < 0.04) return;
       const step = Math.max(1, Math.floor(1 / sampleRatio));
       for (let i = 0; i < ids.length; i += step) {
-        const factor = 1 - jitter * 0.5 + Math.sin(i * 3.7 + performance.now() * 0.01) * jitter * 0.5;
+        const factor = 1 - jitter * 0.5 + Math.sin(i * 3.7 + jitterClock) * jitter * 0.5;
         const val = Math.min(1, Math.max(0, act * factor));
         if (val > 0.04) values.push([ids[i], val]);
       }
