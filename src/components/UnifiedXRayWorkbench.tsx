@@ -51,20 +51,18 @@ export function UnifiedXRayWorkbench({
   const [hoveredNeuron, setHoveredNeuron] = useState<ProbeInfo>(null);
   const [error, setError] = useState("");
 
-  const signalRef = useRef(frame);
+  // 兼容直值与 ref 两种帧来源：ref 模式下直接别名共享父级 ref（RAF 循环读到的永远是最新值）；
+  // 直值模式镜像到本地 ref。旧实现"重渲染时快照一次"在 ref 模式下会把信号冻结在初始帧。
+  const isFrameRef = typeof frame === "object" && frame !== null && "current" in frame;
+  const localSignalRef = useRef<ActivityFrame | null>(null);
+  const signalRef = isFrameRef ? (frame as MutableRefObject<ActivityFrame | null>) : localSignalRef;
   const stimRef = useRef(stimulus);
   const diagRef = useRef(diagnostics);
   const xrayRef = useRef(xrayOpacity);
 
-  // 兼容直值与 ref 两种帧来源：直值模式下镜像到内部 ref；ref 模式下直接共用
-  const frameInnerRef = useRef<ActivityFrame | null>(null);
-  const isFrameRef = typeof frame === "object" && frame !== null && "current" in frame;
   useEffect(() => {
-    if (!isFrameRef) signalRef.current = frame;
+    if (!isFrameRef) localSignalRef.current = frame as ActivityFrame | null;
   }, [frame, isFrameRef]);
-  useEffect(() => {
-    if (isFrameRef) signalRef.current = frame.current;
-  });
   useEffect(() => { stimRef.current = stimulus; }, [stimulus]);
   useEffect(() => { diagRef.current = diagnostics; }, [diagnostics]);
   useEffect(() => { xrayRef.current = xrayOpacity; }, [xrayOpacity]);
@@ -165,6 +163,8 @@ export function UnifiedXRayWorkbench({
     });
 
     let radius = 0.3;
+    // 几何体登记表：卸载时统一 dispose，避免 GPU 显存泄漏
+    const flybodyGeometries: THREE.BufferGeometry[] = [];
 
     // 5. 加载果蝇身体网格与解绑肢体
     void (async () => {
@@ -206,6 +206,7 @@ export function UnifiedXRayWorkbench({
             geomLeft.setAttribute("position", new THREE.BufferAttribute(rawPos, 3));
             geomLeft.setIndex(leftTris);
             geomLeft.computeVertexNormals();
+            flybodyGeometries.push(geomLeft);
             const meshLeft = new THREE.Mesh(geomLeft, materials.membrane);
             meshLeft.position.set(-pWL[0], -pWL[1], -pWL[2]);
             leftWingPivot.add(meshLeft);
@@ -214,6 +215,7 @@ export function UnifiedXRayWorkbench({
             geomRight.setAttribute("position", new THREE.BufferAttribute(rawPos, 3));
             geomRight.setIndex(rightTris);
             geomRight.computeVertexNormals();
+            flybodyGeometries.push(geomRight);
             const meshRight = new THREE.Mesh(geomRight, materials.membrane);
             meshRight.position.set(-pWR[0], -pWR[1], -pWR[2]);
             rightWingPivot.add(meshRight);
@@ -224,6 +226,7 @@ export function UnifiedXRayWorkbench({
           geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buffer.slice(part.positionByteOffset, part.positionByteOffset + part.positionCount * 12)), 3));
           geom.setIndex(new THREE.BufferAttribute(new Uint32Array(buffer.slice(part.indexByteOffset, part.indexByteOffset + part.indexCount * 4)), 1));
           geom.computeVertexNormals();
+          flybodyGeometries.push(geom);
           const mesh = new THREE.Mesh(geom, materials[part.material] ?? materials.body);
 
           if (part.group === "front_left") {
@@ -408,6 +411,9 @@ export function UnifiedXRayWorkbench({
     raycaster.params.Points = { threshold: 0.002 };
     const mouse2D = new THREE.Vector2();
     let isDragging3D = false;
+    // 探针求交节流：pointermove 触发频率远高于需求，12.4 万点云逐次求交会拖垮主线程
+    let lastProbeAt = 0;
+    const PROBE_INTERVAL_MS = 90;
 
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button === 0) isDragging3D = true;
@@ -430,8 +436,9 @@ export function UnifiedXRayWorkbench({
         });
       }
 
-      // 探针检测体内发光神经元
-      if (brainMesh && !isDragging3D) {
+      // 探针检测体内发光神经元（节流求交）
+      if (brainMesh && !isDragging3D && e.timeStamp - lastProbeAt >= PROBE_INTERVAL_MS) {
+        lastProbeAt = e.timeStamp;
         raycaster.setFromCamera(mouse2D, camera);
         const hits = raycaster.intersectObject(brainMesh);
         if (hits.length > 0 && hits[0].index !== undefined) {
@@ -450,6 +457,8 @@ export function UnifiedXRayWorkbench({
             z: Number(pz.toFixed(2)),
             activity: Number(act.toFixed(2)),
           });
+        } else {
+          setHoveredNeuron(null);
         }
       }
     };
@@ -593,6 +602,14 @@ export function UnifiedXRayWorkbench({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       controls.dispose();
+      brainGeom?.dispose();
+      brainMat?.dispose();
+      stimCoreGeom.dispose();
+      stimCoreMat.dispose();
+      stimHaloGeom.dispose();
+      stimHaloMat.dispose();
+      flybodyGeometries.forEach((g) => g.dispose());
+      Object.values(materials).forEach((m) => m.dispose());
       renderer.dispose();
       renderer.domElement.remove();
     };

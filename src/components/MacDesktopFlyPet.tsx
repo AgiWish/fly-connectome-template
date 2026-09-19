@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { asset, type Atlas } from "../lib/atlas";
 import type { ActivityFrame } from "../lib/replay";
 import { AutonomousFlyLifeEngine, type LifeDiagnostics } from "../lib/autonomous-fly-life";
+import { getDesktopBridge, setDesktopMouseIgnore } from "../lib/desktop-bridge";
+import { deriveIgnoreMouse } from "../lib/mouse-penetration";
 import { NeuralThoughtCockpit } from "./NeuralThoughtCockpit";
 
 type Props = {
@@ -53,43 +55,69 @@ export function MacDesktopFlyPet({ atlas }: Props) {
   useEffect(() => { magRef.current = isMagnified; }, [isMagnified]);
 
   const bubbleTimerRef = useRef<number | null>(null);
-  const isHoveredRef = useRef(false);
+  const bubbleFadeTimerRef = useRef<number | null>(null);
+  // 悬停状态提升为 React state：与 showCockpit/bubbleOpen 共同作为穿透推导的唯一事实源
+  const [petHovered, setPetHovered] = useState(false);
 
-  // 通知 Electron 开启或释放鼠标点击穿透
-  const setElectronMouseIgnore = (ignore: boolean) => {
-    try {
-      // @ts-ignore
-      if (window.require) {
-        // @ts-ignore
-        const { ipcRenderer } = window.require("electron");
-        ipcRenderer.send("set-ignore-mouse-events", ignore);
-      }
-    } catch {}
-  };
+  // ── 鼠标穿透单一事实源 ──
+  // 任一交互态（监控舱展开 / 悬停本体 / 气泡打开）为真即接管鼠标；全部结束才恢复全屏穿透。
+  // 历史 bug：多条命令式路径各自调用 setIgnoreMouseEvents，点击路径取反导致"打开监控舱反而穿透"，
+  // 且任一路径漏恢复即锁死桌面鼠标。现统一由本 effect 派生，杜绝路径间互相覆盖。
+  const ignoreMouse = deriveIgnoreMouse({ cockpitOpen: showCockpit, petHovered, bubbleOpen });
+  useEffect(() => {
+    setDesktopMouseIgnore(ignoreMouse);
+    if (ignoreMouse) return;
+    // 看门狗心跳：接管期间每 10s 重发一次 false，主进程 45s 无心跳会自动恢复穿透兜底
+    const heartbeat = window.setInterval(() => setDesktopMouseIgnore(false), 10_000);
+    return () => window.clearInterval(heartbeat);
+  }, [ignoreMouse]);
 
-  // 鼠标悬停在果蝇本体上时：唤醒半透明轻量微药丸菜单
-  const handleMouseEnterPet = () => {
-    isHoveredRef.current = true;
+  // 卸载兜底：组件销毁时恢复全屏穿透，并清理气泡定时器
+  useEffect(() => {
+    return () => {
+      setDesktopMouseIgnore(true);
+      clearBubbleTimers();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const clearBubbleTimers = () => {
     if (bubbleTimerRef.current) {
       clearTimeout(bubbleTimerRef.current);
       bubbleTimerRef.current = null;
     }
+    if (bubbleFadeTimerRef.current) {
+      clearTimeout(bubbleFadeTimerRef.current);
+      bubbleFadeTimerRef.current = null;
+    }
+  };
+
+  // 淡出并关闭微气泡（220ms 淡出动画后真正卸载；淡出定时器可跟踪，重新悬停时可取消）
+  const fadeCloseBubble = () => {
+    setBubbleFading(true);
+    if (bubbleFadeTimerRef.current) clearTimeout(bubbleFadeTimerRef.current);
+    bubbleFadeTimerRef.current = window.setTimeout(() => {
+      bubbleFadeTimerRef.current = null;
+      setBubbleOpen(false);
+      setBubbleFading(false);
+    }, 220);
+  };
+
+  // 鼠标悬停在果蝇本体上时：唤醒半透明轻量微药丸菜单
+  const handleMouseEnterPet = () => {
+    setPetHovered(true);
+    clearBubbleTimers();
     setBubbleFading(false);
     setBubbleOpen(true);
-    setElectronMouseIgnore(false); // 接管鼠标事件，允许点击微药丸操作
   };
 
   // 鼠标移出：1.2 秒内迅速淡出，恢复全屏纯净穿透
   const handleMouseLeavePet = () => {
-    isHoveredRef.current = false;
+    setPetHovered(false);
     if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
     bubbleTimerRef.current = window.setTimeout(() => {
-      setBubbleFading(true);
-      setTimeout(() => {
-        setBubbleOpen(false);
-        setBubbleFading(false);
-        setElectronMouseIgnore(true); // 恢复 100% 鼠标穿透
-      }, 220);
+      bubbleTimerRef.current = null;
+      fadeCloseBubble();
     }, 1200);
   };
 
@@ -101,32 +129,21 @@ export function MacDesktopFlyPet({ atlas }: Props) {
     summon?: () => void;
   }>({});
 
-  // 监听系统级全局快捷键 (来自 Electron 主进程) 与本地按键
+  // 监听系统级全局快捷键 (来自 Electron 主进程，经 contextBridge 安全桥接)
   useEffect(() => {
-    try {
-      // @ts-ignore
-      if (window.require) {
-        // @ts-ignore
-        const { ipcRenderer } = window.require("electron");
-        const onSummon = () => {
-          actionTriggerRef.current.summon?.();
-        };
-        const onToggleCockpit = () => {
-          setShowCockpit((prev) => {
-            const next = !prev;
-            setElectronMouseIgnore(!next);
-            return next;
-          });
-        };
-
-        ipcRenderer.on('summon-fly', onSummon);
-        ipcRenderer.on('toggle-brain-cockpit', onToggleCockpit);
-        return () => {
-          ipcRenderer.removeListener('summon-fly', onSummon);
-          ipcRenderer.removeListener('toggle-brain-cockpit', onToggleCockpit);
-        };
-      }
-    } catch {}
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    const offSummon = bridge.onSummonFly(() => {
+      actionTriggerRef.current.summon?.();
+    });
+    const offCockpit = bridge.onToggleBrainCockpit(() => {
+      // 只改状态，穿透由派生 effect 统一处理
+      setShowCockpit((prev) => !prev);
+    });
+    return () => {
+      offSummon();
+      offCockpit();
+    };
   }, []);
 
   // 监听空格键一键召唤与 Cmd/Ctrl+Shift+B 切换神经思考舱
@@ -135,11 +152,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
       if (e.code === 'Space') {
         actionTriggerRef.current.summon?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'b' || e.key === 'B')) {
-        setShowCockpit((prev) => {
-          const next = !prev;
-          setElectronMouseIgnore(!next);
-          return next;
-        });
+        setShowCockpit((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -276,15 +289,19 @@ export function MacDesktopFlyPet({ atlas }: Props) {
     flyRoot.add(bioLight);
 
     // 加载 Flybody 真实解剖网格 (93,879 独立多边形)
+    // 几何体登记表：卸载时统一 dispose，避免 GPU 显存泄漏
+    const flybodyGeometries: THREE.BufferGeometry[] = [];
     void (async () => {
       try {
         const get = async (path: string) => {
-          const r = await fetch(asset(`data/flybody/${path}`));
+          const r = await fetch(asset(`data/flybody/${path}`), { signal: controller.signal });
           if (!r.ok) throw Error("Flybody 身体资源加载失败");
           return r;
         };
         const meta = (await (await get("model.json")).json()) as Model;
         const buffer = await (await get(meta.binary)).arrayBuffer();
+        // 组件已卸载：不再向场景追加任何几何体
+        if (controller.signal.aborted) return;
 
         const pFL = meta.pivots.front_left ?? [0.0209, -0.0272, 0.0317];
         const pFR = meta.pivots.front_right ?? [-0.0209, -0.0272, 0.0317];
@@ -311,6 +328,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
             gL.setAttribute("position", new THREE.BufferAttribute(rawPos, 3));
             gL.setIndex(leftTris);
             gL.computeVertexNormals();
+            flybodyGeometries.push(gL);
             const mL = new THREE.Mesh(gL, materials.membrane);
             mL.position.set(-pWL[0], -pWL[1], -pWL[2]);
             leftWingPivot.add(mL);
@@ -319,6 +337,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
             gR.setAttribute("position", new THREE.BufferAttribute(rawPos, 3));
             gR.setIndex(rightTris);
             gR.computeVertexNormals();
+            flybodyGeometries.push(gR);
             const mR = new THREE.Mesh(gR, materials.membrane);
             mR.position.set(-pWR[0], -pWR[1], -pWR[2]);
             rightWingPivot.add(mR);
@@ -329,6 +348,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
           geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buffer.slice(part.positionByteOffset, part.positionByteOffset + part.positionCount * 12)), 3));
           geom.setIndex(new THREE.BufferAttribute(new Uint32Array(buffer.slice(part.indexByteOffset, part.indexByteOffset + part.indexCount * 4)), 1));
           geom.computeVertexNormals();
+          flybodyGeometries.push(geom);
           const mesh = new THREE.Mesh(geom, materials[part.material] ?? materials.body);
 
           if (part.group === "front_left") {
@@ -351,7 +371,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
         leftWingPivot.rotation.set(0.05, -0.22, 0.04);
         rightWingPivot.rotation.set(0.05, 0.22, -0.04);
       } catch (e) {
-        console.error("加载 Flybody 失败:", e);
+        if (!controller.signal.aborted) console.error("加载 Flybody 失败:", e);
       }
     })();
 
@@ -503,7 +523,14 @@ export function MacDesktopFlyPet({ atlas }: Props) {
         flightDuration = 0.9;
         flightStart = { x: flyX, y: flyY, z: flyZ };
         flightEnd = { x: 0, y: 60, z: 0 };
-        handleMouseEnterPet();
+        // 召唤专属气泡路径：展开 6s 后自动收起（不复用 hover 路径，避免伪造悬停态锁死穿透）
+        if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
+        setBubbleFading(false);
+        setBubbleOpen(true);
+        bubbleTimerRef.current = window.setTimeout(() => {
+          bubbleTimerRef.current = null;
+          fadeCloseBubble();
+        }, 6000);
         if (lifeEngineRef.current) {
           lifeEngineRef.current.triggerStartle();
         }
@@ -698,6 +725,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
       observer.disconnect();
       brainGeom.dispose();
       brainMat.dispose();
+      flybodyGeometries.forEach((g) => g.dispose());
       Object.values(materials).forEach((m) => m.dispose());
       renderer.dispose();
       renderer.domElement.remove();
@@ -727,10 +755,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
       {/* 桌面右上角常驻极简后台指示标 (微弱透明，不干扰工作，随时一键展开) */}
       <div
         className={`cockpit-toggle-pill ${showCockpit ? "active" : ""}`}
-        onClick={() => {
-          setShowCockpit(!showCockpit);
-          setElectronMouseIgnore(!showCockpit);
-        }}
+        onClick={() => setShowCockpit(!showCockpit)}
         title="打开/收起神经思考监控舱 (全局快捷键 Cmd+Shift+B)"
       >
         🧠 神经思考监控舱
@@ -774,10 +799,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
             <button
               type="button"
               className={`tabii-pill-btn ${showCockpit ? "active" : ""}`}
-              onClick={() => {
-                setShowCockpit(!showCockpit);
-                setElectronMouseIgnore(!showCockpit);
-              }}
+              onClick={() => setShowCockpit(!showCockpit)}
               title="打开/收起神经思考监控舱 (快捷键 Cmd+Shift+B)"
             >
               🧠 思考后台
@@ -824,10 +846,7 @@ export function MacDesktopFlyPet({ atlas }: Props) {
           atlas={atlas}
           frame={currentFrame}
           diagnostics={diagnostics}
-          onClose={() => {
-            setShowCockpit(false);
-            setElectronMouseIgnore(true);
-          }}
+          onClose={() => setShowCockpit(false)}
           onStimulate={handleStimulate}
         />
       )}

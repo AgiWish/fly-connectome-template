@@ -331,6 +331,7 @@ export function NeuralThoughtCockpit({
     return () => {
       cancelAnimationFrame(frameId);
       observer.disconnect();
+      controls.dispose();
       brainGeom.dispose();
       brainMat.dispose();
       renderer.dispose();
